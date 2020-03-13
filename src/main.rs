@@ -1,35 +1,86 @@
 extern crate dirs;
 extern crate failure;
 
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use rust_bert::SentimentClassifier;
+use std::io::ErrorKind;
 use std::path::PathBuf;
 use tch::Device;
 
-fn main() -> failure::Fallible<()> {
-    //    Resources paths
-    let mut home: PathBuf = dirs::home_dir().unwrap();
-    home.push("rustbert");
-    home.push("distilbert_sst2");
-    let config_path = &home.as_path().join("config.json");
-    let vocab_path = &home.as_path().join("vocab.txt");
-    let weights_path = &home.as_path().join("model.ot");
+#[actix_rt::main]
+async fn main() -> std::io::Result<()> {
+    // let home_dir: PathBuf = dirs::home_dir().unwrap();
+    // let on_device = Device::cuda_if_available();
+    // let sentiment_classifier = setup_sentiment_model(home_dir, on_device)?;
+    /*
+    let sentiment_classifier = match setup_sentiment_model(home_dir, on_device) {
+        Err(e) => return e,
+        Ok(m) => m,
+    };
+    */
 
-    //    Set-up classifier
-    let device = Device::cuda_if_available();
-    let sentiment_classifier =
-        SentimentClassifier::new(vocab_path, config_path, weights_path, device)?;
+    HttpServer::new(|| {
+        App::new()
+            .route("/", web::get().to(index))
+            .route("/what_is_rocinante", web::get().to(what_is_rocinante))
+            .route("/sentiment/{input}", web::get().to(get_sentiment))
+    })
+    .bind("127.0.0.1:8080")?
+    .run()
+    .await
+}
 
-    //    Define input
-    let input = [
-        "Probably my all-time favorite movie, a story of selflessness, sacrifice and dedication to a noble cause, but it's not preachy or boring.",
-        "This film tried to be too many things all at once: stinging political satire, Hollywood blockbuster, sappy romantic comedy, family values promo...",
-        "If you like original gut wrenching laughter you will like this movie. If you are young or old then you will love this movie, hell even my mom liked it.",
-    ];
+async fn index() -> impl Responder {
+    HttpResponse::Ok().body("Welcome to Rocinante!")
+}
+async fn what_is_rocinante() -> impl Responder {
+    HttpResponse::Ok().body("Rocinante is Don Quixote's horse.")
+}
+async fn get_sentiment(req: HttpRequest) -> impl Responder {
+    let home_dir: PathBuf = dirs::home_dir().unwrap();
+    let on_device = Device::cuda_if_available();
+    let model = match setup_sentiment_model(home_dir, on_device) {
+        Err(e) => return Err(e),
+        Ok(m) => m,
+    };
+    let input = req.match_info().get("input").unwrap_or("bad input");
+    let res = model.predict((&[input]).to_vec());
 
-    //    Run model
-    let output = sentiment_classifier.predict(input.to_vec());
-    for sentiment in output {
-        println!("{:?}", sentiment);
+    Ok(HttpResponse::Ok().body(format!("{:?}", res)).await)
+}
+
+/*
+struct SentO {
+    model: SentimentClassifier,
+    home_dir: PathBuf,
+    on_device: Device,
+}
+
+impl Responder for SentO {
+    // let home_dir: PathBuf = dirs::home_dir().unwrap();
+    // let on_device = Device::cuda_if_available();
+    // let sentiment_classifier = setup_sentiment_model(home_dir, on_device)?;
+    fn respond_to(self, _req: &HttpRequest) -> Self::Future {
+        let input = _req.match_info().get("input").unwrap_or("bad input");
+        let res = self.model.predict((&[input]).to_vec());
+
+    HttpResponse::Ok().body(format!("{:?}", res))
     }
-    Ok(())
+}
+*/
+
+fn setup_sentiment_model(
+    mut model_path: PathBuf,
+    d: tch::Device,
+) -> Result<SentimentClassifier, std::io::Error> {
+    model_path.push("rustbert");
+    model_path.push("distilbert_sst2");
+    let vocab = &model_path.as_path().join("vocab.txt");
+    let config = &model_path.as_path().join("config.json");
+    let weights = &model_path.as_path().join("model.ot");
+    // Ok(SentimentClassifier::new(vocab, config, weights, d)?)
+    match SentimentClassifier::new(vocab, config, weights, d) {
+        Err(e) => Err(std::io::Error::new(ErrorKind::Other, e)),
+        Ok(m) => Ok(m),
+    }
 }
