@@ -3,26 +3,29 @@ extern crate failure;
 
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use rust_bert::SentimentClassifier;
+
 use std::io::ErrorKind;
 use std::path::PathBuf;
+// use std::sync::Arc;
 use tch::Device;
 
 #[actix_rt::main]
 async fn main() -> std::io::Result<()> {
-    // let home_dir: PathBuf = dirs::home_dir().unwrap();
-    // let on_device = Device::cuda_if_available();
-    // let sentiment_classifier = setup_sentiment_model(home_dir, on_device)?;
     /*
-    let sentiment_classifier = match setup_sentiment_model(home_dir, on_device) {
-        Err(e) => return e,
+    let home_dir: PathBuf = dirs::home_dir().unwrap();
+    let on_device = Device::cuda_if_available();
+    let model = match setup_sentiment_model(home_dir, on_device) {
+        Err(e) => return Err(e),
         Ok(m) => m,
     };
+    let data = web::Data::new(Arc::new(model));
     */
 
     HttpServer::new(|| {
         App::new()
+            // .app_data(data.clone())
             .route("/", web::get().to(index))
-            .route("/what_is_rocinante", web::get().to(what_is_rocinante))
+            .route("/what", web::get().to(what_is_rocinante))
             .route("/sentiment/{input}", web::get().to(get_sentiment))
     })
     .bind("127.0.0.1:8080")?
@@ -36,6 +39,17 @@ async fn index() -> impl Responder {
 async fn what_is_rocinante() -> impl Responder {
     HttpResponse::Ok().body("Rocinante is Don Quixote's horse.")
 }
+/*
+async fn polarity(
+    req: HttpRequest,
+    model: web::Data<Mutex<SentimentClassifier>>,
+) -> impl Responder {
+    let mut model = model.lock().unwrap();
+    let input = req.match_info().get("input").unwrap_or("bad input");
+    let res = model.predict((&[input]).to_vec());
+    HttpResponse::Ok().body(format!("{:?}", res)).await
+}
+*/
 async fn get_sentiment(req: HttpRequest) -> impl Responder {
     let home_dir: PathBuf = dirs::home_dir().unwrap();
     let on_device = Device::cuda_if_available();
@@ -45,7 +59,6 @@ async fn get_sentiment(req: HttpRequest) -> impl Responder {
     };
     let input = req.match_info().get("input").unwrap_or("bad input");
     let res = model.predict((&[input]).to_vec());
-
     Ok(HttpResponse::Ok().body(format!("{:?}", res)).await)
 }
 
