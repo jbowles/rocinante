@@ -1,44 +1,45 @@
 extern crate dirs;
 extern crate failure;
-
-use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use rust_bert::SentimentClassifier;
-
+use std::io::prelude::*;
 use std::io::ErrorKind;
+use std::net::TcpListener;
+use std::net::TcpStream;
 use std::path::PathBuf;
-// use std::sync::Arc;
 use tch::Device;
 
-#[actix_rt::main]
-async fn main() -> std::io::Result<()> {
-    /*
+fn main() -> std::io::Result<()> {
     let home_dir: PathBuf = dirs::home_dir().unwrap();
     let on_device = Device::cuda_if_available();
     let model = match setup_sentiment_model(home_dir, on_device) {
         Err(e) => return Err(e),
         Ok(m) => m,
     };
-    let data = web::Data::new(Arc::new(model));
-    */
+    let input = [
+        "Probably my all-time favorite movie, a story of selflessness, sacrifice and dedication to a noble cause, but it's not preachy or boring.",
+        "This film tried to be too many things all at once: stinging political satire, Hollywood blockbuster, sappy romantic comedy, family values promo...",
+        "If you like original gut wrenching laughter you will like this movie. If you are young or old then you will love this movie, hell even my mom liked it.",
+    ];
 
-    HttpServer::new(|| {
-        App::new()
-            // .app_data(data.clone())
-            .route("/", web::get().to(index))
-            .route("/what", web::get().to(what_is_rocinante))
-            .route("/sentiment/{input}", web::get().to(get_sentiment))
-    })
-    .bind("127.0.0.1:8080")?
-    .run()
-    .await
+    let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
+    for stream in listener.incoming() {
+        let stream = stream.unwrap();
+        handle_connection(stream, (&input).to_vec(), &model)
+    }
+
+    Ok(())
 }
 
-async fn index() -> impl Responder {
-    HttpResponse::Ok().body("Welcome to Rocinante!")
+fn handle_connection(mut stream: TcpStream, input: Vec<&str>, model: &SentimentClassifier) {
+    let output = model.predict(input.to_vec());
+    for sentiment in output {
+        println!("{:?}", sentiment);
+    }
+    let mut buffer = [0; 512];
+    stream.read_exact(&mut buffer).unwrap();
+    println!("Request: {}", String::from_utf8_lossy(&buffer[..]));
 }
-async fn what_is_rocinante() -> impl Responder {
-    HttpResponse::Ok().body("Rocinante is Don Quixote's horse.")
-}
+
 /*
 async fn polarity(
     req: HttpRequest,
@@ -49,7 +50,6 @@ async fn polarity(
     let res = model.predict((&[input]).to_vec());
     HttpResponse::Ok().body(format!("{:?}", res)).await
 }
-*/
 async fn get_sentiment(req: HttpRequest) -> impl Responder {
     let home_dir: PathBuf = dirs::home_dir().unwrap();
     let on_device = Device::cuda_if_available();
@@ -62,7 +62,6 @@ async fn get_sentiment(req: HttpRequest) -> impl Responder {
     Ok(HttpResponse::Ok().body(format!("{:?}", res)).await)
 }
 
-/*
 struct SentO {
     model: SentimentClassifier,
     home_dir: PathBuf,
